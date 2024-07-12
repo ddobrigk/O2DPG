@@ -1,16 +1,30 @@
 
-#if !defined(__CLING__) || defined(__ROOTCLING__)
 #include "Pythia8/Pythia.h"
+#include "Pythia8/HeavyIons.h"
 #include "FairGenerator.h"
 #include "FairPrimaryGenerator.h"
 #include "Generators/GeneratorPythia8.h"
 #include "TRandom3.h"
 #include "TParticlePDG.h"
 #include "TDatabasePDG.h"
-#include "TMath.h"
-#include <cmath>
-using namespace Pythia8;
-#endif
+
+#include <map>
+#include <unordered_set>
+//#include <utility>  // for std::pair
+
+//#if !defined(__CLING__) || defined(__ROOTCLING__)
+//#include "Pythia8/Pythia.h"
+//#include "Pythia8/HeavyIons.h"
+//#include "FairGenerator.h"
+//#include "FairPrimaryGenerator.h"
+//#include "Generators/GeneratorPythia8.h"
+//#include "TRandom3.h"
+//#include "TParticlePDG.h"
+//#include "TDatabasePDG.h"
+//#include "TMath.h"
+//#include <cmath>
+//using namespace Pythia8;
+//#endif
 
 // Default pythia8 minimum bias generator
 // Please do not change
@@ -41,6 +55,25 @@ public:
     xProd=0.; yProd=0.; zProd=0.;
     
     fLVHelper = new TLorentzVector();
+    lutGen = new o2::eventgen::FlowMapper();
+    
+    // -------- CONFIGURE SYNTHETIC FLOW ------------
+    // specify a v2 vs pT here
+    TFile *filehep = new TFile("/Users/daviddc/Downloads/HEPData-ins1116150-v1-Table_1.root", "READ");
+    filehep->cd("Table 1");
+    TH1D *hv = (TH1D*) filehep->Get("Table 1/Hist1D_y6");
+    TH1D hvObj(*hv);
+    lutGen->Setv2VsPt(hvObj);
+    
+    TFile *fileEcc = new TFile("/Users/daviddc/Downloads/eccentricityvsb.root", "READ");
+    TH1D *hEccentricities = (TH1D*) fileEcc->Get("hEccentricities");
+    TH1D hEccentricitiesObj(*hEccentricities);
+    lutGen->SetEccVsB(hEccentricitiesObj);
+    
+    cout<<"Generating LUT for flow test"<<endl;
+    lutGen->CreateLUT();
+    cout<<"Finished creating LUT!"<<endl;
+    // -------- END CONFIGURE SYNTHETIC FLOW ------------
     
     // Initialize the Xi and Omega spectra to be used at injection time
     fSpectraXi = STAR_BlastWave("fSpectraXi",  1.32171, 20);
@@ -308,6 +341,40 @@ public:
     }
     //+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
     
+    //+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    // loop over the entire event record and rotate all particles
+    // synthetic flow exercise
+    // first: get event plane
+    float eventPlaneAngle = mPythia.info.hiInfo->phi();
+    float impactParameter = mPythia.info.hiInfo->b();
+    
+    cout<<"Event plane angle: "<<eventPlaneAngle<<endl;
+    
+    for ( Long_t j=0; j < nParticles; j++ ) {
+      float pyphi = mPythia.event[j].phi();
+      float pypT = mPythia.event[j].pT();
+      
+      // calculate delta with EP
+      float deltaPhiEP = pyphi - eventPlaneAngle;
+      float shift = 0.0;
+      while(deltaPhiEP<0.0){
+        deltaPhiEP += 2*TMath::Pi();
+        shift += 2*TMath::Pi();
+      }
+      while(deltaPhiEP>2*TMath::Pi()){
+        deltaPhiEP -= 2*TMath::Pi();
+        shift -= 2*TMath::Pi();
+      }
+      float newDeltaPhiEP = lutGen->MapPhi(deltaPhiEP, pypT, impactParameter);
+      float pyphiNew = newDeltaPhiEP - shift + eventPlaneAngle;
+      
+      mPythia.event[j].rot(0.0, pyphiNew-pyphi);
+      float newPhiAcquired = mPythia.event[j].phi();
+      
+      cout<<"Check particle j "<<j<<" at original phi "<<Form("%.10f",pyphi)<<" will end up at "<<Form("%.10f",newPhiAcquired)<<endl;
+    }
+    //+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    
     return true;
   }
   
@@ -321,6 +388,8 @@ private:
   double genmaxEta;
   
   Pythia8::Vec4   fourMomentum;  /// four-momentum (px,py,pz,E)
+  o2::eventgen::FlowMapper *lutGen;
+  
   double E;        /// energy: sqrt( m*m+px*px+py*py+pz*pz ) [GeV/c]
   double m;        /// particle mass [GeV/c^2]
   int    pdg;        /// particle pdg code
