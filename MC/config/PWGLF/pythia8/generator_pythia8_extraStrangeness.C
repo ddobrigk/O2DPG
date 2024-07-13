@@ -271,6 +271,7 @@ public:
     Bool_t lPythiaOK = kFALSE;
     while (!lPythiaOK){
       lPythiaOK = mPythia.next();
+      //if(TMath::Abs(mPythia.info.hiInfo->b()-8.5)>0.5) lPythiaOK = false; // select peripheral for flow
     }
     
     // characterise event
@@ -350,7 +351,7 @@ public:
     
     cout<<"Event plane angle: "<<eventPlaneAngle<<endl;
     
-    for ( Long_t j=0; j < nParticles; j++ ) {
+    for ( Long_t j=0; j < mPythia.event.size(); j++ ) {
       float pyphi = mPythia.event[j].phi();
       float pypT = mPythia.event[j].pT();
       
@@ -365,10 +366,17 @@ public:
         deltaPhiEP -= 2*TMath::Pi();
         shift -= 2*TMath::Pi();
       }
-      float newDeltaPhiEP = lutGen->MapPhi(deltaPhiEP, pypT, impactParameter);
+      float newDeltaPhiEP = lutGen->MapPhi(deltaPhiEP, impactParameter, pypT);
       float pyphiNew = newDeltaPhiEP - shift + eventPlaneAngle;
       
+      if(pyphiNew>TMath::Pi())
+        pyphiNew -= 2.0&TMath::Pi();
+      if(pyphiNew<-TMath::Pi())
+        pyphiNew += 2.0&TMath::Pi();
+      
       mPythia.event[j].rot(0.0, pyphiNew-pyphi);
+      
+      
       float newPhiAcquired = mPythia.event[j].phi();
       
       cout<<"Check particle j "<<j<<" at original phi "<<Form("%.10f",pyphi)<<" will end up at "<<Form("%.10f",newPhiAcquired)<<endl;
